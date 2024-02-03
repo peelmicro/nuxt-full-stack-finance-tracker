@@ -236,3 +236,115 @@ Nuxt 3.10.0 with Nitro 2.8.1                                                    
 - We can see the `Index page!` message in the browser.
 
 ![Index page! message](nuxt3-ts-financial.001.png)
+
+### 1.3. Add the NuxtUI USelectMenu component
+
+- We are going to add the `USelectMenu` component to the `index.vue` component.
+- We are going to create a `constants.ts` document to store the `menu options` constants.
+
+> constants.ts
+
+```ts
+export const transactionViewOptions = ['Yearly', 'Monthly', 'Daily']
+```
+
+> pages/index.vue
+
+```vue
+<template>
+  <section class="flex items-center justify-between mb-10">
+    <h1 class="text-4xl font-extrabold">
+      Summary
+    </h1>
+    <div>
+      <USelectMenu :options="transactionViewOptions" v-model="selectedView" />
+    </div>
+  </section>
+</template>
+
+<script setup lang="ts">
+import { transactionViewOptions } from '~/constants'
+const selectedView = ref(transactionViewOptions[1])
+</script>
+```
+
+![USelectMenu example](nuxt3-ts-financial.002.png)
+
+### 1.4. Add the NuxtUI USkeleton and UIcon components
+
+- We are going to add the `USkeleton` and `UIcon` components to the `index.vue` component.
+- The `UICon` component is based on the [iconify](https://iconify.design/getting-started/) library.
+- We are going to create the `Trend` component to display the `trend` of the `transactions`.
+
+> components/trend.vue
+
+```vue
+<template>
+  <div>
+    <div class="font-bold" :class="[color]">{{ title }}</div>
+
+    <div class="text-2xl font-extrabold text-black dark:text-white mb-2">
+      <USkeleton class="h-8 w-full" v-if="loading" />
+      <div v-else>{{ amount }}</div>
+    </div>
+
+    <div>
+      <USkeleton class="h-6 w-full" v-if="loading" />
+      <div v-else class="flex space-x-1 items-center text-sm">
+        <UIcon name="i-heroicons-arrow-trending-up" class="w-6 h-6" :class="[color]" />
+        <div class="text-gray-500 dark:text-gray-400">
+          30% vs last period
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+defineProps({
+  title: String,
+  amount: Number,
+  lastAmount: Number,
+  color: String,
+  loading: Boolean
+})
+</script>
+
+<style scoped>
+.green {
+  @apply text-green-600 dark:text-green-400
+}
+.red {
+  @apply text-red-600 dark:text-red-400
+}
+</style>
+```
+
+> pages/index.vue
+
+```vue
+<template>
+  <section class="flex items-center justify-between mb-10">
+    <h1 class="text-4xl font-extrabold">
+      Summary
+    </h1>
+    <div>
+      <USelectMenu :options="transactionViewOptions" v-model="selectedView" />
+    </div>
+  </section>
+
+  <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 sm:gap-16 mb-10">
+    <Trend color="green" title="Income" :amount="4000" :last-amount="3000" :loading="false" />
+    <Trend color="red" title="Income" :amount="4000" :last-amount="3000" :loading="false" />
+    <Trend color="green" title="Income" :amount="4000" :last-amount="3000" :loading="false" />
+    <Trend color="red" title="Income" :amount="4000" :last-amount="3000" :loading="true" />
+  </section>
+</template>
+
+<script setup lang="ts">
+import { transactionViewOptions } from '~/constants'
+const selectedView = ref(transactionViewOptions[1])
+</script>
+```
+
+![Using Trend Component](nuxt3-ts-financial.003.png)
