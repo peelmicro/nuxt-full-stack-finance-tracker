@@ -1,3 +1,13 @@
 {
-  "cSpell.words": ["iconify", "tailwindcss"]
+  "cSpell.words": [
+    "heroicons",
+    "iconify",
+    "nuxt",
+    "nuxtjs",
+    "supabase",
+    "Supabase",
+    "tablespace",
+    "tailwindcss"
+  ],
+  "scss.lint.unknownAtRules": "ignore"
 }
