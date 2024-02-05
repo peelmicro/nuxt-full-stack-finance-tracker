@@ -902,3 +902,248 @@ const items = [
 
 ![Transactions](nuxt3-ts-financial.030.png)
 
+### 3.7. Deleting a transaction from the Supabase service using a notification message
+
+- We are going to add the `delete` functionality to the `Transaction` component.
+- We are also going to use the `useSupabase` composable to delete the transaction from the Supabase service.
+- We are going to use the `useToast` composable to show a message when the transaction is deleted.
+
+- We need to modify the main `app.vue` file to add the `UNotifications` component.
+
+> app.vue
+
+```vue
+<template>
+  <NuxtLayout>
+    <NuxtPage />
+    <UNotifications />
+  </NuxtLayout>
+</template>
+```
+
+- We need to create the `DailyTransactionSummary` component to show a summary for each day.
+
+> components/daily-transaction-summary.vue
+
+```vue
+<template>
+  <div
+    class="grid grid-cols-2 py-4 border-b border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400 font-bold">
+    <div class="flex items-center justify-between">
+      {{ date }}
+    </div>
+
+    <div class="flex items-center justify-end mr-10">
+      {{ currency }}
+    </div>
+  </div>
+</template>
+
+<script setup>
+const props = defineProps({
+  date: String,
+  transactions: Array
+})
+
+const sum = computed(() => {
+  let sum = 0
+
+  for (const transaction of props.transactions) {
+    if (transaction.type === 'Income') {
+      sum += transaction.amount
+    } else {
+      sum -= transaction.amount
+    }
+  }
+
+  return sum
+})
+
+const { currency } = useCurrency(sum)
+</script>
+```
+
+- We need to modify the `Transaction` component to add the `delete` functionality and the `DailyTransactionSummary` component.
+
+> components/transaction.vue
+
+```vue
+<template>
+  <div class="grid grid-cols-2 py-4 border-b border-gray-200 dark:border-gray-800 text-gray-900 dark:text-gray-100">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center space-x-1">
+        <UIcon :name="icon" :class="[iconColor]" />
+        <div>{{ transaction.description }}</div>
+      </div>
+
+      <div>
+        <UBadge color="white" v-if="transaction.category">{{ transaction.category }}</UBadge>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-end space-x-2">
+      <div>{{ currency }}</div>
+      <div>
+        <UDropdown :items="items" :popper="{ placement: 'bottom-start' }">
+          <UButton color="white" variant="ghost" trailing-icon="i-heroicons-ellipsis-horizontal" :loading="isLoading" />
+        </UDropdown>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+const props = defineProps({
+  transaction: Object
+})
+const emit = defineEmits(['deleted'])
+const isIncome = computed(() => props.transaction.type === 'Income')
+const icon = computed(
+  () => isIncome.value ? 'i-heroicons-arrow-up-right' : 'i-heroicons-arrow-down-left'
+)
+const iconColor = computed(
+  () => isIncome.value ? 'text-green-600' : 'text-red-600'
+)
+
+const { currency } = useCurrency(props.transaction.amount)
+
+const isLoading = ref(false)
+const toast = useToast()
+const supabase = useSupabaseClient()
+
+const deleteTransaction = async () => {
+  isLoading.value = true
+
+  try {
+    await supabase.from('transactions')
+      .delete()
+      .eq('id', props.transaction.id)
+    toast.add({
+      title: 'Transaction deleted',
+      icon: 'i-heroicons-check-circle',
+    })
+    emit('deleted', props.transaction.id)
+  } catch (error) {
+    toast.add({
+      title: 'Transaction deleted',
+      icon: 'i-heroicons-exclamation-circle',
+    })
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const items = [
+  [
+    {
+      label: 'Edit',
+      icon: 'i-heroicons-pencil-square-20-solid',
+      click: () => console.log('Edit')
+    },
+    {
+      label: 'Delete',
+      icon: 'i-heroicons-trash-20-solid',
+      click: deleteTransaction
+    }
+  ]
+]
+</script>
+```
+
+- We need to modify the `index.vue` file to add the changes to delete the transaction.
+
+> pages/index.vue
+
+```vue
+<template>
+  <section class="flex items-center justify-between mb-10">
+    <h1 class="text-4xl font-extrabold">
+      Summary
+    </h1>
+    <div>
+      <USelectMenu :options="transactionViewOptions" v-model="selectedView" />
+    </div>
+  </section>
+
+  <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 sm:gap-16 mb-10">
+    <Trend color="green" title="Income" :amount="4000" :last-amount="3000" :loading="isLoading" />
+    <Trend color="red" title="Expense" :amount="4000" :last-amount="5000" :loading="isLoading" />
+    <Trend color="green" title="Investments" :amount="4000" :last-amount="3000" :loading="isLoading" />
+    <Trend color="red" title="Saving" :amount="4000" :last-amount="4100" :loading="isLoading" />
+  </section>
+
+  <section v-if="!isLoading">
+    <div v-for="(transactionsOnDay, date) in transactionsGroupedByDate" :key="date" class="mb-10">
+      <DailyTransactionSummary :date="date" :transactions="transactionsOnDay" />
+      <Transaction v-for="transaction in transactionsOnDay" :key="transaction.id" :transaction="transaction"
+        @deleted="refreshTransactions()" />
+    </div>
+  </section>
+  <section v-else>
+    <USkeleton class="h-8 w-full mb-2" v-for="i in 4" :key="i" />
+  </section>
+</template>
+
+<script setup>
+import { transactionViewOptions } from '~/constants'
+const supabase = useSupabaseClient()
+
+const selectedView = ref(transactionViewOptions[1])
+const transactions = ref([])
+const isLoading = ref(false)
+
+const fetchTransactions = async () => {
+  isLoading.value = true
+  try {
+    const { data } = await useAsyncData('transactions', async () => {
+      const { data, error } = await supabase
+        .from('transactions')
+        .select()
+
+      if (error) return []
+
+      return data
+    })
+
+    return data.value
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const refreshTransactions = async () => transactions.value = await fetchTransactions()
+
+await refreshTransactions()
+
+const transactionsGroupedByDate = computed(() => {
+  let grouped = {}
+
+  for (const transaction of transactions.value) {
+    const date = new Date(transaction.created_at).toISOString().split('T')[0]
+
+    if (!grouped[date]) {
+      grouped[date] = []
+    }
+
+    grouped[date].push(transaction)
+  }
+
+  return grouped
+})
+
+console.log(transactionsGroupedByDate.value)
+
+</script>
+```
+
+- We can see the initial transactions in the browser.
+
+![Initial](nuxt3-ts-financial.031.png)
+
+- We can delete a transaction by clicking on the `Delete` button.
+
+![Deleted transaction](nuxt3-ts-financial.032.png)
+
+- We can see the final transactions in the browser.
+
+![Alt text](nuxt3-ts-financial.033.png)
