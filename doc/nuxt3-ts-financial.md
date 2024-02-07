@@ -1147,3 +1147,263 @@ console.log(transactionsGroupedByDate.value)
 - We can see the final transactions in the browser.
 
 ![Alt text](nuxt3-ts-financial.033.png)
+
+### 3.8 Adding/Modifying a transaction from the Supabase service using a modal
+
+- We are going to add the `add` functionality to the `Transaction` component.
+- We are going to use the `UModal` component from `NuxtUI` to manage the modal to add/modify a new transaction.
+- We are going to use the `UCard`, `UForm`, `UFormGroup`, `UInput`, `USelect`, `UButton` components from `NuxtUI` to manage the form to add/modify a new transaction.
+- We are going to use the [Zod](https://zod.dev/) library to validate the form to add/modify a new transaction. We need to install the library.
+
+```bash
+juanpabloperez@jpp-PROX15-AMD:~/Work/Projects/EdiEz/Examples/nuxt3-ts-financial$ bun add zod 
+[0.02ms] ".env"
+bun add v1.0.23 (83f2432d)
+
+ installed zod@3.22.4
+
+warn: nuxt-app's postinstall script took 3s
+
+ 1 package installed [4.12s]
+```
+
+- We have updated the `constants.ts` file to add the `categories` and `types` constant.
+
+> constants.ts
+
+```ts
+export const transactionViewOptions = ['Yearly', 'Monthly', 'Daily']
+
+export const categories = ['Food', 'Housing', 'Car', 'Entertainment']
+
+export const types = ['Income', 'Expense', 'Saving', 'Investment']
+```
+
+- We have created the `TransactionModal` component to manage the modal to add/modify a new transaction.
+
+> components/transaction-modal.vue
+
+```vue
+<template>
+  <UModal v-model="isOpen">
+    <UCard>
+      <template #header>
+        Add Transaction
+      </template>
+
+      <UForm :state="state" :schema="schema" ref="form" @submit.prevent="save">
+        <UFormGroup :required="true" label="Transaction Type" name="type" class="mb-4">
+          <USelect placeholder="Select the transaction type" :options="types" v-model="state.type" />
+        </UFormGroup>
+
+        <UFormGroup label="Amount" :required="true" name="amount" class="mb-4">
+          <UInput type="number" placeholder="Amount" v-model.number="state.amount" />
+        </UFormGroup>
+
+        <UFormGroup label="Transaction date" :required="true" name="created_at" class="mb-4">
+          <UInput type="date" icon="i-heroicons-calendar-days-20-solid" v-model="state.created_at" />
+        </UFormGroup>
+
+        <UFormGroup label="Description" hint="Optional" name="description" class="mb-4">
+          <UInput placeholder="Description" v-model="state.description" />
+        </UFormGroup>
+
+        <UFormGroup :required="true" label="Category" name="category" class="mb-4" v-if="state.type === 'Expense'">
+          <USelect placeholder="Category" :options="categories" v-model="state.category" />
+        </UFormGroup>
+
+        <UButton type="submit" color="black" variant="solid" label="Save" />
+      </UForm>
+    </UCard>
+  </UModal>
+</template>
+
+<script setup>
+import { categories, types } from '~/constants'
+import { z } from 'zod'
+
+const props = defineProps({
+  modelValue: Boolean
+})
+const emit = defineEmits(['update:modelValue'])
+
+const defaultSchema = z.object({
+  created_at: z.string(),
+  description: z.string().optional(),
+  amount: z.number().positive('Amount needs to be more than 0')
+})
+
+const incomeSchema = z.object({
+  type: z.literal('Income')
+})
+const expenseSchema = z.object({
+  type: z.literal('Expense'),
+  category: z.enum(categories)
+})
+const investmentSchema = z.object({
+  type: z.literal('Investment')
+})
+const savingSchema = z.object({
+  type: z.literal('Saving')
+})
+
+const schema = z.intersection(
+  z.discriminatedUnion('type', [incomeSchema, expenseSchema, investmentSchema, savingSchema]),
+  defaultSchema
+)
+
+const form = ref()
+
+const save = async () => {
+  if (form.value.errors.length) return
+
+  // Store into the supabase
+}
+
+const initialState = {
+  type: undefined,
+  amount: 0,
+  created_at: undefined,
+  description: undefined,
+  category: undefined
+}
+const state = ref({
+  ...initialState
+})
+const resetForm = () => {
+  Object.assign(state.value, initialState)
+  form.value.clear()
+}
+
+const isOpen = computed({
+  get: () => props.modelValue,
+  set: (value) => {
+    if (!value) resetForm()
+    emit('update:modelValue', value)
+  }
+})
+</script>
+```
+
+- We have modified the `index.vue` component to add the `add` functionality.
+
+> pages/index.vue
+
+```vue
+<template>
+  <section class="flex items-center justify-between mb-10">
+    <h1 class="text-4xl font-extrabold">
+      Summary
+    </h1>
+    <div>
+      <USelectMenu :options="transactionViewOptions" v-model="selectedView" />
+    </div>
+  </section>
+
+  <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 sm:gap-16 mb-10">
+    <Trend color="green" title="Income" :amount="incomeTotal" :last-amount="4100" :loading="isLoading" />
+    <Trend color="red" title="Expense" :amount="expenseTotal" :last-amount="3800" :loading="isLoading" />
+    <Trend color="green" title="Investments" :amount="4000" :last-amount="3000" :loading="isLoading" />
+    <Trend color="red" title="Saving" :amount="4000" :last-amount="4100" :loading="isLoading" />
+  </section>
+
+  <section class="flex justify-between mb-10">
+    <div>
+      <h2 class="text-2xl font-extrabold">Transactions</h2>
+      <div class="text-gray-500 dark:text-gray-400">
+        You have {{ incomeCount }} incomes and {{ expenseCount }} expenses this period
+      </div>
+    </div>
+    <div>
+      <TransactionModal v-model="isOpen" />
+      <UButton icon="i-heroicons-plus-circle" color="white" variant="solid" label="Add" @click="isOpen = true" />
+    </div>
+  </section>
+
+  <section v-if="!isLoading">
+    <div v-for="(transactionsOnDay, date) in transactionsGroupedByDate" :key="date" class="mb-10">
+      <DailyTransactionSummary :date="date" :transactions="transactionsOnDay" />
+      <Transaction v-for="transaction in transactionsOnDay" :key="transaction.id" :transaction="transaction"
+        @deleted="refreshTransactions()" />
+    </div>
+  </section>
+  <section v-else>
+    <USkeleton class="h-8 w-full mb-2" v-for="i in 4" :key="i" />
+  </section>
+</template>
+
+<script setup>
+import { transactionViewOptions } from '~/constants'
+const supabase = useSupabaseClient()
+
+const selectedView = ref(transactionViewOptions[1])
+const transactions = ref([])
+const isLoading = ref(false)
+const isOpen = ref(false)
+
+const income = computed(
+  () => transactions.value.filter(t => t.type === 'Income')
+)
+const expense = computed(
+  () => transactions.value.filter(t => t.type === 'Expense')
+)
+
+const incomeCount = computed(() => income.value.length)
+const expenseCount = computed(() => expense.value.length)
+
+const incomeTotal = computed(
+  () => income.value.reduce((sum, transaction) => sum + transaction.amount, 0)
+)
+const expenseTotal = computed(
+  () => expense.value.reduce((sum, transaction) => sum + transaction.amount, 0)
+)
+
+const fetchTransactions = async () => {
+  isLoading.value = true
+  try {
+    const { data } = await useAsyncData('transactions', async () => {
+      const { data, error } = await supabase
+        .from('transactions')
+        .select()
+
+      if (error) return []
+
+      return data
+    })
+
+    return data.value
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const refreshTransactions = async () => transactions.value = await fetchTransactions()
+
+await refreshTransactions()
+
+const transactionsGroupedByDate = computed(() => {
+  let grouped = {}
+
+  for (const transaction of transactions.value) {
+    const date = new Date(transaction.created_at).toISOString().split('T')[0]
+
+    if (!grouped[date]) {
+      grouped[date] = []
+    }
+
+    grouped[date].push(transaction)
+  }
+
+  return grouped
+})
+
+console.log(transactionsGroupedByDate.value)
+
+</script>
+```
+
+![Add Button](nuxt3-ts-financial.034.png)
+
+- We can see the modal to add/modify a transaction.
+
+![Modal](nuxt3-ts-financial.035.png)
