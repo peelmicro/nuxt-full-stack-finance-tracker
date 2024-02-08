@@ -1407,3 +1407,579 @@ console.log(transactionsGroupedByDate.value)
 - We can see the modal to add/modify a transaction.
 
 ![Modal](nuxt3-ts-financial.035.png)
+
+
+### 3.9 Persisting the transaction data to the Supabase service
+
+#### 3.9.1. Adding fake data to the Supabase service
+
+- We are going to add fake data to the Supabase service to test the `add` functionality.
+- We are going to use the [Faker](https://fakerjs.dev/) library to generate the fake data.
+
+```bash
+juanpabloperez@jpp-PROX15-AMD:~/Work/Projects/EdiEz/Examples/nuxt3-ts-financial$ bun add @faker-js/faker -d
+[0.03ms] ".env"
+bun add v1.0.23 (83f2432d)
+
+ installed @faker-js/faker@8.4.0
+
+warn: nuxt-app's postinstall script took 2s
+
+ 1 package installed [2.97s]
+```
+
+#### 3.9.2. Adding the seed script to the package.json file
+
+
+> package.json
+
+```json
+{
+  "name": "nuxt-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "seed": "node seed.mjs"
+  },
+  "devDependencies": {
+    "@faker-js/faker": "^8.4.0",
+    "@nuxtjs/supabase": "^1.1.6",
+    "nuxt": "^3.10.0",
+    "vue": "^3.4.15",
+    "vue-router": "^4.2.5"
+  },
+  "dependencies": {
+    "@nuxt/ui": "^2.13.0",
+    "zod": "^3.22.4"
+  }
+}
+```
+
+- We can run the `seed` script to add the fake data to the Supabase service.
+
+```bash
+juanpabloperez@jpp-PROX15-AMD:~/Work/Projects/EdiEz/Examples/nuxt3-ts-financial$ bun seed
+$ node seed.mjs
+Data inserted successfully.
+```
+
+#### 3.9.3. Persisting the transaction data to the Supabase service
+
+- We are going to use the [date-fns](https://date-fns.org/) library to format the date.
+
+```bash
+juanpabloperez@jpp-PROX15-AMD:~/Work/Projects/EdiEz/Examples/nuxt3-ts-financial$ bun add date-fns
+[0.06ms] ".env"
+bun add v1.0.23 (83f2432d)
+
+ installed date-fns@3.3.1
+
+warn: nuxt-app's postinstall script took 2.6s
+
+ 1 package installed [4.18s]
+```
+
+> composables/useFetchTransactions.ss
+
+```js
+export const useFetchTransactions = (period) => {
+  const supabase = useSupabaseClient()
+  const transactions = ref([])
+  const pending = ref(false)
+
+  const income = computed(() =>
+    transactions.value.filter((t) => t.type === 'Income')
+  )
+  const expense = computed(() =>
+    transactions.value.filter((t) => t.type === 'Expense')
+  )
+
+  const incomeCount = computed(() => income.value.length)
+  const expenseCount = computed(() => expense.value.length)
+
+  const incomeTotal = computed(() =>
+    income.value.reduce((sum, transaction) => sum + transaction.amount, 0)
+  )
+  const expenseTotal = computed(() =>
+    expense.value.reduce((sum, transaction) => sum + transaction.amount, 0)
+  )
+
+  const fetchTransactions = async () => {
+    pending.value = true
+    try {
+      const { data } = await useAsyncData(
+        `transactions-${period.value.from.toDateString()}-${period.value.to.toDateString()}`,
+        async () => {
+          const { data, error } = await supabase
+            .from('transactions')
+            .select()
+            .gte('created_at', period.value.from.toISOString())
+            .lte('created_at', period.value.to.toISOString())
+            .order('created_at', { ascending: false })
+
+          if (error) return []
+
+          return data
+        }
+      )
+
+      return data.value
+    } finally {
+      pending.value = false
+    }
+  }
+
+  const refresh = async () => (transactions.value = await fetchTransactions())
+
+  watch(period, async () => await refresh())
+
+  const transactionsGroupedByDate = computed(() => {
+    let grouped = {}
+
+    for (const transaction of transactions.value) {
+      const date = new Date(transaction.created_at).toISOString().split('T')[0]
+
+      if (!grouped[date]) {
+        grouped[date] = []
+      }
+
+      grouped[date].push(transaction)
+    }
+
+    return grouped
+  })
+
+  return {
+    transactions: {
+      all: transactions,
+      grouped: {
+        byDate: transactionsGroupedByDate,
+      },
+      income,
+      expense,
+      incomeTotal,
+      expenseTotal,
+      incomeCount,
+      expenseCount,
+    },
+    refresh,
+    pending,
+  }
+}
+```
+
+> composables/useSelectedTimePeriod.js
+
+```js
+import {
+  startOfYear,
+  endOfYear,
+  sub,
+  startOfDay,
+  endOfDay,
+  startOfMonth,
+  endOfMonth,
+} from 'date-fns'
+
+export const useSelectedTimePeriod = (period) => {
+  const current = computed(() => {
+    switch (period.value) {
+      case 'Yearly':
+        return {
+          from: startOfYear(new Date()),
+          to: endOfYear(new Date()),
+        }
+      case 'Monthly':
+        return {
+          from: startOfMonth(new Date()),
+          to: endOfMonth(new Date()),
+        }
+      case 'Daily':
+        return {
+          from: startOfDay(new Date()),
+          to: endOfDay(new Date()),
+        }
+    }
+  })
+
+  const previous = computed(() => {
+    switch (period.value) {
+      case 'Yearly':
+        return {
+          from: startOfYear(sub(new Date(), { years: 1 })),
+          to: endOfYear(sub(new Date(), { years: 1 })),
+        }
+      case 'Monthly':
+        return {
+          from: startOfMonth(sub(new Date(), { months: 1 })),
+          to: endOfMonth(sub(new Date(), { months: 1 })),
+        }
+      case 'Daily':
+        return {
+          from: startOfDay(sub(new Date(), { days: 1 })),
+          to: endOfDay(sub(new Date(), { days: 1 })),
+        }
+    }
+  })
+
+  return { current, previous }
+}
+```
+
+> components/transaction-modal.vue
+
+```vue
+<template>
+  <UModal v-model="isOpen">
+    <UCard>
+      <template #header>
+        Add Transaction
+      </template>
+
+      <UForm :state="state" :schema="schema" ref="form" @submit.prevent="save">
+        <UFormGroup :required="true" label="Transaction Type" name="type" class="mb-4">
+          <USelect placeholder="Select the transaction type" :options="types" v-model="state.type" />
+        </UFormGroup>
+
+        <UFormGroup label="Amount" :required="true" name="amount" class="mb-4">
+          <UInput type="number" placeholder="Amount" v-model.number="state.amount" />
+        </UFormGroup>
+
+        <UFormGroup label="Transaction date" :required="true" name="created_at" class="mb-4">
+          <UInput type="date" icon="i-heroicons-calendar-days-20-solid" v-model="state.created_at" />
+        </UFormGroup>
+
+        <UFormGroup label="Description" hint="Optional" name="description" class="mb-4">
+          <UInput placeholder="Description" v-model="state.description" />
+        </UFormGroup>
+
+        <UFormGroup :required="true" label="Category" name="category" class="mb-4" v-if="state.type === 'Expense'">
+          <USelect placeholder="Category" :options="categories" v-model="state.category" />
+        </UFormGroup>
+
+        <UButton type="submit" color="black" variant="solid" label="Save" :loading="isLoading" />
+      </UForm>
+    </UCard>
+  </UModal>
+</template>
+
+<script setup>
+import { categories, types } from '~/constants'
+import { z } from 'zod'
+
+const props = defineProps({
+  modelValue: Boolean
+})
+const emit = defineEmits(['update:modelValue', 'saved'])
+
+const defaultSchema = z.object({
+  created_at: z.string(),
+  description: z.string().optional(),
+  amount: z.number().positive('Amount needs to be more than 0')
+})
+
+const incomeSchema = z.object({
+  type: z.literal('Income')
+})
+const expenseSchema = z.object({
+  type: z.literal('Expense'),
+  category: z.enum(categories)
+})
+const investmentSchema = z.object({
+  type: z.literal('Investment')
+})
+const savingSchema = z.object({
+  type: z.literal('Saving')
+})
+
+const schema = z.intersection(
+  z.discriminatedUnion('type', [incomeSchema, expenseSchema, investmentSchema, savingSchema]),
+  defaultSchema
+)
+
+const form = ref()
+const isLoading = ref(false)
+const supabase = useSupabaseClient()
+const toast = useToast()
+
+const save = async () => {
+  if (form.value.errors.length) return
+
+  isLoading.value = true
+  try {
+    const { error } = await supabase.from('transactions')
+      .upsert({ ...state.value })
+
+    if (!error) {
+      toast.add({
+        'title': 'Transaction saved',
+        'icon': 'i-heroicons-check-circle'
+      })
+      isOpen.value = false
+      emit('saved')
+      return
+    }
+
+    throw error
+  } catch (e) {
+    toast.add({
+      title: 'Transaction not saved',
+      description: e.message,
+      icon: 'i-heroicons-exclamation-circle',
+      color: 'red'
+    })
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const initialState = {
+  type: undefined,
+  amount: 0,
+  created_at: undefined,
+  description: undefined,
+  category: undefined
+}
+const state = ref({
+  ...initialState
+})
+const resetForm = () => {
+  Object.assign(state.value, initialState)
+  form.value.clear()
+}
+
+const isOpen = computed({
+  get: () => props.modelValue,
+  set: (value) => {
+    if (!value) resetForm()
+    emit('update:modelValue', value)
+  }
+})
+</script>
+```
+
+> components/transaction.vue
+
+```vue
+<template>
+  <div class="grid grid-cols-3 py-4 border-b border-gray-200 dark:border-gray-800 text-gray-900 dark:text-gray-100">
+    <div class="flex items-center justify-between space-x-4 col-span-2">
+      <div class="flex items-center space-x-1">
+        <UIcon :name="icon" :class="[iconColor]" />
+        <div>{{ transaction.description }}</div>
+      </div>
+
+      <div>
+        <UBadge color="white" v-if="transaction.category">{{ transaction.category }}</UBadge>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-end space-x-2">
+      <div>{{ currency }}</div>
+      <div>
+        <UDropdown :items="items" :popper="{ placement: 'bottom-start' }">
+          <UButton color="white" variant="ghost" trailing-icon="i-heroicons-ellipsis-horizontal" :loading="isLoading" />
+        </UDropdown>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+const props = defineProps({
+  transaction: Object
+})
+const emit = defineEmits(['deleted'])
+const isIncome = computed(() => props.transaction.type === 'Income')
+const icon = computed(
+  () => isIncome.value ? 'i-heroicons-arrow-up-right' : 'i-heroicons-arrow-down-left'
+)
+const iconColor = computed(
+  () => isIncome.value ? 'text-green-600' : 'text-red-600'
+)
+
+const { currency } = useCurrency(props.transaction.amount)
+
+const isLoading = ref(false)
+const toast = useToast()
+const supabase = useSupabaseClient()
+
+const deleteTransaction = async () => {
+  isLoading.value = true
+
+  try {
+    await supabase.from('transactions')
+      .delete()
+      .eq('id', props.transaction.id)
+    toast.add({
+      title: 'Transaction deleted',
+      icon: 'i-heroicons-check-circle',
+    })
+    emit('deleted', props.transaction.id)
+  } catch (error) {
+    toast.add({
+      title: 'Transaction deleted',
+      icon: 'i-heroicons-exclamation-circle',
+    })
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const items = [
+  [
+    {
+      label: 'Edit',
+      icon: 'i-heroicons-pencil-square-20-solid',
+      click: () => console.log('Edit')
+    },
+    {
+      label: 'Delete',
+      icon: 'i-heroicons-trash-20-solid',
+      click: deleteTransaction
+    }
+  ]
+]
+</script>
+```
+
+> components/trend.vue
+
+```vue
+<template>
+  <div>
+    <div class="font-bold" :class="[color]">{{ title }}</div>
+
+    <div class="text-2xl font-extrabold text-black dark:text-white mb-2">
+      <USkeleton class="h-8 w-full" v-if="loading" />
+      <div v-else>{{ currency }}</div>
+    </div>
+
+    <div>
+      <USkeleton class="h-6 w-full" v-if="loading" />
+      <div v-else class="flex space-x-1 items-center text-sm">
+        <UIcon :name="icon" class="w-6 h-6" :class="{ 'green': trendingUp, 'red': !trendingUp }" />
+        <div class="text-gray-500 dark:text-gray-400">
+          {{ percentageTrend }} vs last period
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+const props = defineProps({
+  title: String,
+  amount: Number,
+  lastAmount: Number,
+  color: String,
+  loading: Boolean
+})
+const { amount } = toRefs(props)
+const trendingUp = computed(
+  () => props.amount >= props.lastAmount
+)
+const icon = computed(
+  () => trendingUp.value ? 'i-heroicons-arrow-trending-up' : 'i-heroicons-arrow-trending-down'
+)
+const { currency } = useCurrency(amount)
+
+const percentageTrend = computed(() => {
+  if (props.amount === 0 || props.lastAmount === 0) return '∞%'
+
+  const bigger = Math.max(props.amount, props.lastAmount)
+  const lower = Math.min(props.amount, props.lastAmount)
+
+  const ratio = ((bigger - lower) / lower) * 100
+
+  // console.log(bigger, lower, ratio, Math.ceil(ratio))
+
+  return `${Math.ceil(ratio)}%`
+})
+</script>
+
+<style scoped>
+.green {
+  @apply text-green-600 dark:text-green-400
+}
+.red {
+  @apply text-red-600 dark:text-red-400
+}
+</style>
+```
+
+> pages/index.vue
+
+```vue
+<template>
+  <section class="flex items-center justify-between mb-10">
+    <h1 class="text-4xl font-extrabold">
+      Summary
+    </h1>
+    <div>
+      <USelectMenu :options="transactionViewOptions" v-model="selectedView" />
+    </div>
+  </section>
+
+  <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 sm:gap-16 mb-10">
+    <Trend color="green" title="Income" :amount="incomeTotal" :last-amount="prevIncomeTotal" :loading="pending" />
+    <Trend color="red" title="Expense" :amount="expenseTotal" :last-amount="prevExpenseTotal" :loading="pending" />
+    <Trend color="green" title="Investments" :amount="4000" :last-amount="3000" :loading="pending" />
+    <Trend color="red" title="Saving" :amount="4000" :last-amount="4100" :loading="pending" />
+  </section>
+
+  <section class="flex justify-between mb-10">
+    <div>
+      <h2 class="text-2xl font-extrabold">Transactions</h2>
+      <div class="text-gray-500 dark:text-gray-400">
+        You have {{ incomeCount }} incomes and {{ expenseCount }} expenses this period
+      </div>
+    </div>
+    <div>
+      <TransactionModal v-model="isOpen" @saved="refresh()" />
+      <UButton icon="i-heroicons-plus-circle" color="white" variant="solid" label="Add" @click="isOpen = true" />
+    </div>
+  </section>
+
+  <section v-if="!pending">
+    <div v-for="(transactionsOnDay, date) in byDate" :key="date" class="mb-10">
+      <DailyTransactionSummary :date="date" :transactions="transactionsOnDay" />
+      <Transaction v-for="transaction in transactionsOnDay" :key="transaction.id" :transaction="transaction"
+        @deleted="refresh()" />
+    </div>
+  </section>
+  <section v-else>
+    <USkeleton class="h-8 w-full mb-2" v-for="i in 4" :key="i" />
+  </section>
+</template>
+
+<script setup>
+import { transactionViewOptions } from '~/constants'
+
+const selectedView = ref(transactionViewOptions[1])
+const isOpen = ref(false)
+const { current, previous } = useSelectedTimePeriod(selectedView)
+
+const { pending, refresh, transactions: {
+  incomeCount,
+  expenseCount,
+  incomeTotal,
+  expenseTotal,
+  grouped: {
+    byDate
+  }
+} } = useFetchTransactions(current)
+await refresh()
+
+const { refresh: refreshPrevious, transactions: {
+  incomeTotal: prevIncomeTotal,
+  expenseTotal: prevExpenseTotal,
+} } = useFetchTransactions(previous)
+// await refreshPrevious()
+</script>
+```
